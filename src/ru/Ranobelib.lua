@@ -85,6 +85,14 @@ local function getSearch(data)
 	end)
 end
 
+local function presetHeaderBuilder()
+	local headersbuilder = HeadersBuilder()
+	headersbuilder:add("Site-Id", "3")
+	headersbuilder:add("Origin", "https://ranobelib.me/")
+	headersbuilder:add("Referer", "https://ranobelib.me/")
+	return headersbuilder
+end
+
 local function getPassage(chapterURL)
 	local slug, volume, number, branch_id = string.match(chapterURL, "([^/]+)/([^/]+)/([^/]+)")
 	if branch_id then
@@ -93,8 +101,9 @@ local function getPassage(chapterURL)
 		branch_id = ""
 	end
 
+	local headersbuilder = presetHeaderBuilder()
 	local url = apiURL .. "/" .. slug .. "/chapter?" .. branch_id .. "number=" .. number .. "&volume=" .. volume
-	local doc = dkjson.GET(url)
+	local doc = dkjson.GET(url, headersbuilder:build())
 
 	local chap = doc.data.content
 	if chap.type == "doc" then
@@ -118,7 +127,6 @@ local function getPassage(chapterURL)
 						break
 					end
 				end
-				print('<img alt="" src="' .. baseURL .. url .. '" />')
 				return '<img alt="" src="' .. baseURL .. url .. '" />'
 			end
 			return ""
@@ -130,8 +138,7 @@ local function getPassage(chapterURL)
 end
 
 local function parseNovel(novelURL, loadChapters)
-	local headersbuilder = HeadersBuilder()
-	headersbuilder:add("Site-Id", "3")
+	local headersbuilder = presetHeaderBuilder()
 	local response = dkjson.GET(apiURL .. "/" .. novelURL .. allfields, headersbuilder:build()).data
 
 	local novel = NovelInfo {
@@ -145,7 +152,7 @@ local function parseNovel(novelURL, loadChapters)
 	}
 
 	if loadChapters then
-		local chapterJson = dkjson.GET(apiURL .. "/" .. novelURL .. "/chapters").data
+		local chapterJson = dkjson.GET(apiURL .. "/" .. novelURL .. "/chapters", headersbuilder:build()).data
 		local chapterList = {}
 		for k, chapter in pairs(chapterJson) do
 			table.insert(chapterList, NovelChapter {
