@@ -2,6 +2,7 @@
 
 local baseURL = "https://ranobelib.me"
 local apiURL = "https://api.cdnlibs.org/api/manga"
+local imgURL = "https://cover.imglib.info"
 local dkjson = Require("dkjson")
 
 local ORDER_BY_FILTER = 3
@@ -48,6 +49,14 @@ local function expandURL(path, type)
 	return baseURL .. "/ru/" .. chapterPath
 end
 
+local function presetHeaderBuilder()
+	local headersbuilder = HeadersBuilder()
+	headersbuilder:add("Site-Id", "3")
+	headersbuilder:add("Origin", baseURL .. "/")
+	headersbuilder:add("Referer", baseURL .. "/")
+	return headersbuilder
+end
+
 local function getSearch(data)
 	local url = apiURL .. "?site_id[]=3&page=" .. data[PAGE]
 	if data[ORDER_BY_FILTER] then
@@ -75,7 +84,8 @@ local function getSearch(data)
 		url = url .. "&q=" .. data[0]
 	end
 
-	local result = dkjson.GET(url)
+	local headersbuilder = presetHeaderBuilder()
+	local result = dkjson.GET(url, headersbuilder:build())
 	return map(result.data, function(v)
 		return Novel {
 			title = v.rus_name or v.name,
@@ -85,12 +95,7 @@ local function getSearch(data)
 	end)
 end
 
-local function presetHeaderBuilder()
-	local headersbuilder = HeadersBuilder()
-	headersbuilder:add("Site-Id", "3")
-	headersbuilder:add("Origin", "https://ranobelib.me/")
-	headersbuilder:add("Referer", "https://ranobelib.me/")
-	return headersbuilder
+local function mapParagraphContent(e)
 end
 
 local function getPassage(chapterURL)
