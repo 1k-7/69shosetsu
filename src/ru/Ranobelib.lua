@@ -96,6 +96,14 @@ local function getSearch(data)
 end
 
 local function mapParagraphContent(e)
+	if e.type == "text" then
+		return e.text
+	end
+	if e.type == "hardBreak" then
+		return "<br>"
+	end
+	print("UNKNOWN c " .. e.type)
+	return ""
 end
 
 local function getPassage(chapterURL)
@@ -111,18 +119,25 @@ local function getPassage(chapterURL)
 	local doc = dkjson.GET(url, headersbuilder:build())
 
 	local chap = doc.data.content
+	if chap == nil then 
+		print("UNAVAILABLE CHAPTER")
+		return pageOfElem(Document("<h1>Глава не найдена, удалена или находится на модерации</h1><p>Пожалуйста, попробуйте позже или проверьте WebView для уточнения данных</p>")) -- from russian: the chapter not found, unavailable or in moderation, please try again later or use webview for additional information
+	end
 	if chap.type == "doc" then
 		local html = map(chap.content, function(v)
 			if v.type == "paragraph" then
 				local br = v.text
 				if type(v.content) == "table" then
-					br = table.concat(map(v.content, function(e) return e.text end), "<br>")
+					br = table.concat(map(v.content, mapParagraphContent), "<br>")
 				end
 				if br then
 					return "<p>" .. br .. "</p>"
 				else
 					return "<br>"
 				end
+			end
+			if v.type == "horizontalRule" then
+				return "<hr>"
 			end
 			if v.type == "image" then
 				local url
@@ -134,6 +149,7 @@ local function getPassage(chapterURL)
 				end
 				return '<img alt="" src="' .. baseURL .. url .. '" />'
 			end
+			print("UNKNOWN DATA")
 			return ""
 		end)
 		chap = table.concat(html)
