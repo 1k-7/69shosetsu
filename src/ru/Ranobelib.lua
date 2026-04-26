@@ -90,6 +90,7 @@ local function getSearch(data)
 		return Novel {
 			title = v.rus_name or v.name,
 			link = v.slug_url or v.id .. "--" .. v.slug,
+			-- TODO: (somehow fix image loading)
 			imageURL = v.cover.default
 		}
 	end)
@@ -162,12 +163,23 @@ local function parseNovel(novelURL, loadChapters)
 	local headersbuilder = presetHeaderBuilder()
 	local response = dkjson.GET(apiURL .. "/" .. novelURL .. allfields, headersbuilder:build()).data
 
+	local summary = response.summary
+
+	if type(summary) == "table" then 
+		summary = table.concat(map(summary.content, function(v)
+			if type(v) == "table" then
+				return table.concat(map(v.content, mapParagraphContent))
+			end
+			return v
+		end), "\n\n")
+	end
+
 	local novel = NovelInfo {
 		title = response.rus_name or response.name,
 		genres = map(response.genres, function(v) return v.name end),
 		tags = map(response.tags, function(v) return v.name end),
 		imageURL = response.cover.default,
-		description = response.summary,
+		description = summary,
 		status = ({ NovelStatus.PUBLISHING, NovelStatus.COMPLETED, NovelStatus.PAUSED, NovelStatus.COMPLETED })
 			[response.status.id]
 	}
