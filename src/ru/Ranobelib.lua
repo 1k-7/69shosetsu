@@ -1,4 +1,4 @@
--- {"id":73,"ver":"2.0.1","libVer":"1.0.0","author":"Rider21","dep":["dkjson>=1.0.1"]}
+-- {"id":73,"ver":"2.0.2","libVer":"1.0.0","author":"Rider21","dep":["dkjson>=1.0.1"]}
 
 local baseURL = "https://ranobelib.me"
 local apiURL = "https://api.cdnlibs.org/api/manga"
