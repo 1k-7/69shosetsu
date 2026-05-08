@@ -1,4 +1,4 @@
--- {"ver":"1.0.2","author":"Bigrand","dep":["url>=1.0.0", "unhtml>=1.0.0"]}
+-- {"ver":"1.0.3","author":"Bigrand","dep":["url>=1.0.0", "unhtml>=1.0.0"]}
 
 local qs = Require("url").querystring
 local unhtml = Require("unhtml")
@@ -296,6 +296,12 @@ local defaults = {
             links = doc:select("select option")
             if not links:isEmpty() then
                 return links, "select"
+            end
+
+            -- NovelBin AJAX chapter archive
+            links = doc:select("li[data-chapter-item] a")
+            if not links:isEmpty() then
+                return links, "list"
             end
 
             links = doc:select(".list-chapter li a")
