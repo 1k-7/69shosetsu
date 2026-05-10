@@ -1,7 +1,8 @@
--- {"id":73,"ver":"2.0.1","libVer":"1.0.0","author":"Rider21","dep":["dkjson>=1.0.1"]}
+-- {"id":73,"ver":"2.0.2","libVer":"1.0.0","author":"Rider21","dep":["dkjson>=1.0.1"]}
 
 local baseURL = "https://ranobelib.me"
 local apiURL = "https://api.cdnlibs.org/api/manga"
+local imgURL = "https://cover.imglib.info"
 local dkjson = Require("dkjson")
 
 local ORDER_BY_FILTER = 3
@@ -48,6 +49,14 @@ local function expandURL(path, type)
 	return baseURL .. "/ru/" .. chapterPath
 end
 
+local function presetHeaderBuilder()
+	local headersbuilder = HeadersBuilder()
+	headersbuilder:add("Site-Id", "3")
+	headersbuilder:add("Origin", baseURL .. "/")
+	headersbuilder:add("Referer", baseURL .. "/")
+	return headersbuilder
+end
+
 local function getSearch(data)
 	local url = apiURL .. "?site_id[]=3&page=" .. data[PAGE]
 	if data[ORDER_BY_FILTER] then
@@ -75,14 +84,27 @@ local function getSearch(data)
 		url = url .. "&q=" .. data[0]
 	end
 
-	local result = dkjson.GET(url)
+	local headersbuilder = presetHeaderBuilder()
+	local result = dkjson.GET(url, headersbuilder:build())
 	return map(result.data, function(v)
 		return Novel {
 			title = v.rus_name or v.name,
 			link = v.slug_url or v.id .. "--" .. v.slug,
+			-- TODO: (somehow fix image loading)
 			imageURL = v.cover.default
 		}
 	end)
+end
+
+local function mapParagraphContent(e)
+	if e.type == "text" then
+		return e.text
+	end
+	if e.type == "hardBreak" then
+		return "<br>"
+	end
+	print("UNKNOWN c " .. e.type)
+	return ""
 end
 
 local function getPassage(chapterURL)
@@ -93,22 +115,30 @@ local function getPassage(chapterURL)
 		branch_id = ""
 	end
 
+	local headersbuilder = presetHeaderBuilder()
 	local url = apiURL .. "/" .. slug .. "/chapter?" .. branch_id .. "number=" .. number .. "&volume=" .. volume
-	local doc = dkjson.GET(url)
+	local doc = dkjson.GET(url, headersbuilder:build())
 
 	local chap = doc.data.content
+	if chap == nil then 
+		print("UNAVAILABLE CHAPTER")
+		return pageOfElem(Document("<h1>Глава не найдена, удалена или находится на модерации</h1><p>Пожалуйста, попробуйте позже или проверьте WebView для уточнения данных</p>")) -- from russian: the chapter not found, unavailable or in moderation, please try again later or use webview for additional information
+	end
 	if chap.type == "doc" then
 		local html = map(chap.content, function(v)
 			if v.type == "paragraph" then
 				local br = v.text
 				if type(v.content) == "table" then
-					br = table.concat(map(v.content, function(e) return e.text end), "<br>")
+					br = table.concat(map(v.content, mapParagraphContent), "<br>")
 				end
 				if br then
 					return "<p>" .. br .. "</p>"
 				else
 					return "<br>"
 				end
+			end
+			if v.type == "horizontalRule" then
+				return "<hr>"
 			end
 			if v.type == "image" then
 				local url
@@ -118,9 +148,9 @@ local function getPassage(chapterURL)
 						break
 					end
 				end
-				print('<img alt="" src="' .. baseURL .. url .. '" />')
 				return '<img alt="" src="' .. baseURL .. url .. '" />'
 			end
+			print("UNKNOWN DATA")
 			return ""
 		end)
 		chap = table.concat(html)
@@ -130,22 +160,32 @@ local function getPassage(chapterURL)
 end
 
 local function parseNovel(novelURL, loadChapters)
-	local headersbuilder = HeadersBuilder()
-	headersbuilder:add("Site-Id", "3")
+	local headersbuilder = presetHeaderBuilder()
 	local response = dkjson.GET(apiURL .. "/" .. novelURL .. allfields, headersbuilder:build()).data
+
+	local summary = response.summary
+
+	if type(summary) == "table" then 
+		summary = table.concat(map(summary.content, function(v)
+			if type(v) == "table" then
+				return table.concat(map(v.content, mapParagraphContent))
+			end
+			return v
+		end), "\n\n")
+	end
 
 	local novel = NovelInfo {
 		title = response.rus_name or response.name,
 		genres = map(response.genres, function(v) return v.name end),
 		tags = map(response.tags, function(v) return v.name end),
 		imageURL = response.cover.default,
-		description = response.summary,
+		description = summary,
 		status = ({ NovelStatus.PUBLISHING, NovelStatus.COMPLETED, NovelStatus.PAUSED, NovelStatus.COMPLETED })
 			[response.status.id]
 	}
 
 	if loadChapters then
-		local chapterJson = dkjson.GET(apiURL .. "/" .. novelURL .. "/chapters").data
+		local chapterJson = dkjson.GET(apiURL .. "/" .. novelURL .. "/chapters", headersbuilder:build()).data
 		local chapterList = {}
 		for k, chapter in pairs(chapterJson) do
 			table.insert(chapterList, NovelChapter {
