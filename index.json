@@ -641,9 +641,9 @@
 			"fileName": "Novelbuddy",
 			"imageURL": "https://novelbuddy.com/static/sites/novelbuddy/icons/apple-touch-icon.png",
 			"lang": "en",
-			"ver": "2.0.0",
+			"ver": "2.0.1",
 			"libVer": "1.0.0",
-			"md5": "05e5e53611ecc9f888999d525d53a85150237384ace7ec642eb337490de32cc9",
+			"md5": "ce88a1e33b0017a3c15e0836c7d2ae0d450ed0b2e21bdf34cee2e981064b345a",
 			"type": "LuaScript"
 		},
 		{
