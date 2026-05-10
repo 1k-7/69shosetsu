@@ -1,4 +1,4 @@
--- {"id":95564,"ver":"2.0.10","libVer":"1.0.0","author":"Bigrand, Confident-hate","dep":["novelvault>=1.0.0"]}
+-- {"id":95564,"ver":"2.0.11","libVer":"1.0.0","author":"Bigrand, Confident-hate","dep":["novelvault>=1.0.0"]}
 
 return Require("novelvault")("https://novelbin.com", {
 	id = 95564,

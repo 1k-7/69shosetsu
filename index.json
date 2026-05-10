@@ -193,9 +193,9 @@
 		},
 		{
 			"name": "novelvault",
-			"ver": "1.0.2",
+			"ver": "1.0.3",
 			"url": null,
-			"hash": "260f4bf533359c7266d62a2092533dbee982ddda144546941892e8d8301d9d2d"
+			"hash": "f44e786eaac6b586ff193248661c1a1543660be7f58d1772cfad457ac6317f3d"
 		},
 		{
 			"name": "unhtml",
@@ -619,9 +619,9 @@
 			"fileName": "NovelBin",
 			"imageURL": "https://shosetsuorg.gitlab.io/extensions/icons/NovelBin.png",
 			"lang": "en",
-			"ver": "2.0.10",
+			"ver": "2.0.11",
 			"libVer": "1.0.0",
-			"md5": "4b3471dc089e7df31bc005ba76ca094024373c979e8081610db2791571395efc",
+			"md5": "e622e67c8c0c3e6c474cb8555e85421ff4a5c00a57ee238b4f955f33645a018f",
 			"type": "LuaScript"
 		},
 		{
