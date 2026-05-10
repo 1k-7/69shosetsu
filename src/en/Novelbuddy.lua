@@ -1,4 +1,4 @@
--- {"id":95566,"ver":"2.0.0","libVer":"1.0.0","author":"Confident-hate","dep":["dkjson>=1.0.0, unhtml>=1.0.0"]}
+-- {"id":95566,"ver":"2.0.1","libVer":"1.0.0","author":"Confident-hate","dep":["dkjson>=1.0.0, unhtml>=1.0.0"]}
 
 local baseURL = "https://novelbuddy.com"
 local apiURL = "https://api.novelbuddy.com"
@@ -176,8 +176,8 @@ end
 local function getPassage(chapterURL)
     local htmlElement = GETDocument(chapterURL)
     local reader = htmlElement:selectFirst(".novel-reader-content")
-    local title = reader:selectFirst("h3"):text()
-    local chapter = reader:children():get(1) -- 0 is title banner
+    local title = reader:selectFirst("h2"):text() .. reader:selectFirst("p"):text()
+    local chapter = reader:selectFirst(".novel-tts-content") -- actual chapter content
     chapter:prepend("<h1>" .. title .. "</h1>")
 
     -- stolen Code from novelvault, see comment line 550
