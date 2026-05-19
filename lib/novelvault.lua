@@ -1,4 +1,4 @@
--- {"ver":"1.0.3","author":"Bigrand","dep":["url>=1.0.0", "unhtml>=1.0.0"]}
+-- {"ver":"1.0.4","author":"Bigrand","dep":["url>=1.0.0", "unhtml>=1.0.0"]}
 
 local qs = Require("url").querystring
 local unhtml = Require("unhtml")
@@ -644,7 +644,7 @@ local function parseSelectChapter(element)
 end
 
 local function parseListChapter(element)
-    local titleElement = element:selectFirst(".nchr-text")
+    local titleElement = element:selectFirst(".nchr-text") or element
 
     local isPremium = titleElement:selectFirst(".premium-label")
     local isPaid = titleElement:selectFirst(".paid-label")
@@ -653,7 +653,10 @@ local function parseListChapter(element)
         return nil
     end
 
-    local chapTitle = element:text()
+    local chapTitle = element:attr("title")
+    if not chapTitle or chapTitle == "" then
+        chapTitle = element:text()
+    end
     local chapLink = element:attr("href")
 
     return { title = chapTitle, link = chapLink }
@@ -711,6 +714,17 @@ function defaults:parseNovel(novelURL, loadChapters)
     }
 
     if loadChapters then
+        -- Detect last free chapter from novel page
+        local lastFreeChapterNum = nil
+        local latestChapterEl = document:selectFirst(".l-chapter .chapter-title")
+        if latestChapterEl then
+            local latestText = latestChapterEl:text()
+            local num = latestText:match("[Cc]hapter%s+(%d+)")
+            if num then
+                lastFreeChapterNum = tonumber(num)
+            end
+        end
+
         local chapterIndexURL
         chapterIndexURL = qs({[self.novelIdParam] = novelID}, self.baseURL .. "/" .. self.ajaxChaptersURL)
 
@@ -736,6 +750,14 @@ function defaults:parseNovel(novelURL, loadChapters)
 
             if not parsed or not parsed.title or not parsed.link then
                 return nil
+            end
+
+            -- Skip chapters beyond the last free chapter
+            if lastFreeChapterNum then
+                local chNum = parsed.title:match("[Cc]hapter%s+(%d+)")
+                if chNum and tonumber(chNum) > lastFreeChapterNum then
+                    return nil
+                end
             end
 
             local link = parsed.link

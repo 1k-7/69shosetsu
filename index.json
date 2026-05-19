@@ -193,9 +193,9 @@
 		},
 		{
 			"name": "novelvault",
-			"ver": "1.0.3",
+			"ver": "1.0.4",
 			"url": null,
-			"hash": "f44e786eaac6b586ff193248661c1a1543660be7f58d1772cfad457ac6317f3d"
+			"hash": "737ab1822653c0b8444f3da38ffbc61ea8f52dba14a733b649575af7a266c13f"
 		},
 		{
 			"name": "unhtml",
