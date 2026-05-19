@@ -78,6 +78,13 @@
 			"website": ""
 		},
 		{
+			"id": -778352505,
+			"name": "wsu808",
+			"desc": "Worked on FilterOptions, Fimfiction",
+			"imageURL": "",
+			"website": ""
+		},
+		{
 			"id": 1440041231,
 			"name": "Ali Mohamed",
 			"desc": "Worked on Rewayat Club - نادي الروايات",
@@ -137,13 +144,6 @@
 			"id": -306470064,
 			"name": "unTanya",
 			"desc": "Worked on Xiaowaz",
-			"imageURL": "",
-			"website": ""
-		},
-		{
-			"id": -778352505,
-			"name": "wsu808",
-			"desc": "Worked on FilterOptions",
 			"imageURL": "",
 			"website": ""
 		}
@@ -842,6 +842,17 @@
 			"ver": "1.0.1",
 			"libVer": "1.0.0",
 			"md5": "a7fd369e20034315166db8ac593cbd9f89aaede2e86841c8e016e47a4b6e73e0",
+			"type": "LuaScript"
+		},
+		{
+			"id": 808001,
+			"name": "Fimfiction",
+			"fileName": "Fimfiction",
+			"imageURL": "https://static.fimfiction.net/images/favicon.png?9",
+			"lang": "en",
+			"ver": "1.0.0",
+			"libVer": "1.0.0",
+			"md5": "9925872085d26bc9974fbee4c8da5c1960efd4f3a6fa3c4c6b0ad41809f7cdfa",
 			"type": "LuaScript"
 		},
 		{
