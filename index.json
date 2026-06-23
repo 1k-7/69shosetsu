@@ -845,6 +845,17 @@
 			"type": "LuaScript"
 		},
 		{
+			"id": 690069,
+			"name": "69 Shuba (Translated)",
+			"fileName": "Shuba69",
+			"imageURL": "https://cdn.cdnshu.com/images/apple-touch-icon.png",
+			"lang": "zh",
+			"ver": "1.0.0",
+			"libVer": "1.0.0",
+			"md5": "d97781882cc169f7a62360ce2b564e4b881eb41be2a488971915b1f275b7f2e7",
+			"type": "LuaScript"
+		},
+		{
 			"id": 808001,
 			"name": "Fimfiction",
 			"fileName": "Fimfiction",

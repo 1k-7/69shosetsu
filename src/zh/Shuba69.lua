@@ -1,0 +1,553 @@
+-- {"id":690069,"ver":"1.0.0","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+
+local json = Require("dkjson")
+
+local baseURL = "https://www.69shuba.com"
+local imageURL = "https://cdn.cdnshu.com/images/apple-touch-icon.png"
+
+local translateURL = "https://translate-pa.googleapis.com/v1/translateHtml"
+local translateKey = "AIzaSyATBXajvzQLTDHEQbcpq0Ihe0vWDHmO520"
+local jsonMediaType = MediaType("application/json+protobuf; charset=utf-8")
+
+local ORDER_FILTER_ID = 2
+local STATUS_FILTER_ID = 3
+local GENRE_FILTER_ID = 4
+
+local ORDER_NAMES = {
+	"Popularity",
+	"Recommended",
+	"New Books"
+}
+
+local ORDER_PARAMS = {
+	"monthvisit",
+	"allvote",
+	"newhot"
+}
+
+local STATUS_NAMES = {
+	"All",
+	"Completed",
+	"Ongoing"
+}
+
+local STATUS_PARAMS = {
+	"0",
+	"1",
+	"2"
+}
+
+local GENRE_NAMES = {
+	"All",
+	"Fantasy",
+	"Cultivation/Wuxia",
+	"Romance",
+	"History/Military",
+	"Games",
+	"Sci-fi/Space",
+	"Mystery/Thriller",
+	"Fanfiction",
+	"Urban",
+	"Workplace",
+	"Time Travel",
+	"Youth/Campus"
+}
+
+local GENRE_PARAMS = {
+	"0",
+	"1",
+	"2",
+	"3",
+	"4",
+	"5",
+	"6",
+	"7",
+	"8",
+	"9",
+	"10",
+	"11",
+	"12"
+}
+
+local function trim(str)
+	if not str then
+		return ""
+	end
+	str = str:gsub("%s+", " ")
+	str = str:gsub("^%s+", "")
+	return str:gsub("%s+$", "")
+end
+
+local function shrinkURL(url)
+	if not url then
+		return ""
+	end
+
+	url = url:gsub("^https?://www%.69shuba%.com", "")
+	return url:gsub("^https?://69shuba%.com", "")
+end
+
+local function expandURL(url)
+	if not url or url == "" then
+		return baseURL
+	end
+	if url:match("^https?://") then
+		return url
+	end
+	if url:sub(1, 1) ~= "/" then
+		url = "/" .. url
+	end
+	return baseURL .. url
+end
+
+local function textOf(element)
+	return element and trim(element:text()) or ""
+end
+
+local function attrOf(element, name)
+	if not element then
+		return ""
+	end
+	return element:attr(name) or ""
+end
+
+local function firstElement(element, selectors)
+	if not element then
+		return nil
+	end
+	for _, selector in ipairs(selectors) do
+		local selected = element:selectFirst(selector)
+		if selected then
+			return selected
+		end
+	end
+	return nil
+end
+
+local function normalizeImageURL(url)
+	if not url or url == "" then
+		return ""
+	end
+	if url:match("^//") then
+		return "https:" .. url
+	end
+	if url:match("^https?://") then
+		return url
+	end
+	return expandURL(url)
+end
+
+local function bookIDFromURL(url)
+	return (url or ""):match("/book/(%d+)%.htm") or (url or ""):match("/book/(%d+)/")
+end
+
+local function parseNovelLink(url)
+	local shrunk = shrinkURL(url)
+	local id = bookIDFromURL(shrunk)
+	if id then
+		return "/book/" .. id .. ".htm"
+	end
+	return shrunk
+end
+
+local function parseNovelCard(element)
+	local titleElement = nil
+	if element:tagName() == "a" and attrOf(element, "href"):find("/book/") then
+		titleElement = element
+	else
+		titleElement = firstElement(element, {
+			'.newnav h3 a[href*="/book/"]',
+			'h3 a[href*="/book/"]',
+			'h1 a[href*="/book/"]',
+			'a[href*="/book/"]'
+		})
+	end
+
+	local imageElement = firstElement(element, {
+		"a.imgbox img",
+		".bookimg2 img",
+		"img"
+	})
+
+	if not titleElement then
+		titleElement = element:selectFirst('a[href*="/book/"]')
+	end
+
+	if not titleElement then
+		return nil
+	end
+
+	local title = textOf(titleElement)
+	if title == "" and imageElement then
+		title = attrOf(imageElement, "title")
+		if title == "" then
+			title = attrOf(imageElement, "alt")
+		end
+	end
+
+	local link = parseNovelLink(titleElement:attr("href"))
+	if title == "" or link == "" then
+		return nil
+	end
+
+	return Novel {
+		title = title,
+		link = link,
+		imageURL = normalizeImageURL(attrOf(imageElement, "data-src") ~= "" and attrOf(imageElement, "data-src") or attrOf(imageElement, "src"))
+	}, link
+end
+
+local function parseNovelCards(elements)
+	local seen = {}
+	local novels = {}
+
+	map(elements, function(element)
+		local novel, link = parseNovelCard(element)
+		if novel and link ~= "" and not seen[link] then
+			seen[link] = true
+			novels[#novels + 1] = novel
+		end
+	end)
+
+	return novels
+end
+
+local function parseListingPage(url)
+	local document = GETDocument(url)
+	local list = document:select("#article_list_content > li")
+	if list:size() > 0 then
+		return parseNovelCards(list)
+	end
+
+	local ranking = document:select('.ranking a[href*="/book/"]')
+	if ranking:size() > 0 then
+		return parseNovelCards(ranking)
+	end
+
+	return parseNovelCards(document:select('a[href*="/book/"]'))
+end
+
+local function listingURL(path, page)
+	if page <= 1 then
+		return baseURL .. path
+	end
+
+	if path:match("%.html$") then
+		return baseURL .. path:gsub("%.html$", "_" .. page .. ".html")
+	end
+	if path:match("%.htm$") then
+		return baseURL .. path:gsub("%.htm$", "_" .. page .. ".htm")
+	end
+	return baseURL .. path:gsub("/$", "") .. "_" .. page .. ".htm"
+end
+
+local function listFromPath(path)
+	return function(data)
+		local page = data[PAGE]
+		if not page or page < 1 then
+			page = 1
+		end
+		return parseListingPage(listingURL(path, page))
+	end
+end
+
+local function filteredList(data)
+	local page = data[PAGE]
+	if not page or page < 1 then
+		page = 1
+	end
+
+	local order = ORDER_PARAMS[(data[ORDER_FILTER_ID] or 0) + 1] or ORDER_PARAMS[1]
+	local status = STATUS_PARAMS[(data[STATUS_FILTER_ID] or 0) + 1] or STATUS_PARAMS[1]
+	local genre = GENRE_PARAMS[(data[GENRE_FILTER_ID] or 0) + 1] or GENRE_PARAMS[1]
+
+	return parseListingPage(baseURL .. "/novels/" .. order .. "_" .. genre .. "_" .. status .. "_" .. page .. ".htm")
+end
+
+local function parseStatus(text)
+	text = text or ""
+	if text:find("全本") or text:find("完结") then
+		return NovelStatus.COMPLETED
+	end
+	if text:find("连载") then
+		return NovelStatus.PUBLISHING
+	end
+	return NovelStatus.UNKNOWN
+end
+
+local function parseMetadataLine(text, label)
+	return trim((text or ""):match(label .. "[:：]%s*(.+)") or "")
+end
+
+local function parseNovel(novelURL, loadChapters)
+	local infoURL = expandURL(parseNovelLink(novelURL))
+	local document = GETDocument(infoURL)
+
+	local nav = document:selectFirst(".booknav2")
+	local title = textOf(firstElement(document, { ".booknav2 h1", "h1" }))
+	local image = firstElement(document, { ".bookimg2 img", ".bookbox img", "img[title]" })
+	local tags = map(document:select("#tagul a, .tagul a"), textOf)
+
+	local author = ""
+	local genres = {}
+	local statusText = ""
+	local description = ""
+
+	if nav then
+		map(nav:select("p"), function(row)
+			local rowText = textOf(row)
+			local parsedAuthor = parseMetadataLine(rowText, "作者")
+			local parsedGenre = parseMetadataLine(rowText, "分类")
+			if parsedAuthor ~= "" then
+				author = parsedAuthor
+			elseif parsedGenre ~= "" then
+				genres = { parsedGenre }
+			elseif rowText:find("连载") or rowText:find("全本") or rowText:find("完结") then
+				statusText = rowText
+			end
+		end)
+	end
+
+	local descriptionElement = firstElement(document, {
+		".tabsnav .tab-content",
+		".bookintro",
+		".intro",
+		"#intro"
+	})
+	if descriptionElement then
+		description = textOf(descriptionElement)
+		description = description:gsub("^简介%s*", "")
+	end
+
+	local novelInfo = NovelInfo {
+		title = title,
+		link = parseNovelLink(novelURL),
+		imageURL = normalizeImageURL(attrOf(image, "src")),
+		description = description,
+		authors = author ~= "" and { author } or {},
+		genres = genres,
+		tags = tags,
+		status = parseStatus(statusText),
+		language = "zh"
+	}
+
+	if loadChapters then
+		local id = bookIDFromURL(novelURL) or bookIDFromURL(infoURL)
+		local catalogURL = id and (baseURL .. "/book/" .. id .. "/") or infoURL:gsub("%.htm$", "/")
+		local catalog = GETDocument(catalogURL)
+		local chapterElements = catalog:select('#catalog li[data-num] a[href*="/txt/"]')
+		if chapterElements:size() == 0 then
+			chapterElements = document:select('a[href*="/txt/"]')
+		end
+
+		local order = 0
+		local chapters = AsList(map(chapterElements, function(chapter)
+			order = order + 1
+			return NovelChapter {
+				title = textOf(chapter:selectFirst("span")) ~= "" and textOf(chapter:selectFirst("span")) or textOf(chapter),
+				link = shrinkURL(chapter:attr("href")),
+				order = order,
+				release = textOf(chapter:selectFirst("small")) ~= "" and textOf(chapter:selectFirst("small")) or attrOf(chapter:parent(), "data-etime")
+			}
+		end))
+
+		novelInfo:setChapters(chapters)
+	end
+
+	return novelInfo
+end
+
+local function removeUselessContent(element)
+	element:select("script, style, iframe, ins, .yueduad1, #txtright, .txtinfo, .tools, .readpage, .jubao, .hide720, .setbox, .ad, [id*=ad], [class*=ad]"):remove()
+	element:select("a[href*=javascript]"):remove()
+end
+
+local function collectParagraphs(element)
+	local html = tostring(element)
+	html = html
+		:gsub("<br%s*/?>", "\n")
+		:gsub("</p>", "\n")
+		:gsub("</div>", "\n")
+		:gsub("<script.->.-</script>", "\n")
+		:gsub("<style.->.-</style>", "\n")
+		:gsub("<[^>]->", "")
+		:gsub("&nbsp;", " ")
+		:gsub("　", " ")
+		:gsub("\r", "\n")
+
+	local paragraphs = {}
+	for line in html:gmatch("[^\n]+") do
+		line = trim(line)
+		if line ~= "" then
+			paragraphs[#paragraphs + 1] = line
+		end
+	end
+
+	return paragraphs
+end
+
+local function escapeHTML(text)
+	text = text or ""
+	text = text:gsub("&", "&amp;")
+	text = text:gsub("<", "&lt;")
+	text = text:gsub(">", "&gt;")
+	return text:gsub(string.char(34), "&quot;")
+end
+
+local function paragraphsToHTML(paragraphs)
+	return table.concat(map(paragraphs, function(paragraph)
+		return "<p>" .. escapeHTML(paragraph) .. "</p>"
+	end), "")
+end
+
+local function translateHTML(html)
+	if html == "" then
+		return html
+	end
+
+	local payload = {
+		{ html, "zh-CN", "en" },
+		"wt_lib"
+	}
+	local body = RequestBody(json.encode(payload), jsonMediaType)
+	local headers = HeadersBuilder()
+		:add("Content-Type", "application/json+protobuf")
+		:add("Origin", baseURL)
+		:add("X-Goog-Api-Key", translateKey)
+		:build()
+
+	local ok, response = pcall(function()
+		return Request(POST(translateURL, headers, body))
+	end)
+
+	if not ok or not response then
+		return html
+	end
+
+	local okBody, responseBody = pcall(function()
+		return response:body():string()
+	end)
+	if not okBody or not responseBody or responseBody == "" then
+		return html
+	end
+
+	local okJSON, decoded = pcall(function()
+		return json.decode(responseBody)
+	end)
+	if not okJSON or not decoded or not decoded[1] then
+		return html
+	end
+
+	if type(decoded[1]) == "table" then
+		return table.concat(map(decoded[1], function(fragment)
+			return "<p>" .. escapeHTML(tostring(fragment)) .. "</p>"
+		end), "")
+	end
+
+	return tostring(decoded[1])
+end
+
+local function translateParagraphs(paragraphs)
+	local translated = {}
+	local batch = {}
+	local batchLength = 0
+
+	local function flush()
+		if #batch == 0 then
+			return
+		end
+
+		local sourceHTML = paragraphsToHTML(batch)
+		local translatedHTML = translateHTML(sourceHTML)
+		local translatedDoc = Document(translatedHTML)
+		local translatedParagraphs = translatedDoc:select("p")
+
+		if translatedParagraphs:size() > 0 then
+			map(translatedParagraphs, function(paragraph)
+				local text = textOf(paragraph)
+				if text ~= "" then
+					translated[#translated + 1] = text
+				end
+			end)
+		else
+			for _, paragraph in ipairs(batch) do
+				translated[#translated + 1] = paragraph
+			end
+		end
+
+		batch = {}
+		batchLength = 0
+	end
+
+	for _, paragraph in ipairs(paragraphs) do
+		if batchLength > 0 and batchLength + #paragraph > 4500 then
+			flush()
+		end
+		batch[#batch + 1] = paragraph
+		batchLength = batchLength + #paragraph
+	end
+	flush()
+
+	return translated
+end
+
+local function getPassage(chapterURL)
+	local document = GETDocument(expandURL(chapterURL))
+	local chapter = document:selectFirst(".txtnav")
+	if not chapter then
+		chapter = firstElement(document, { "#content", ".content", ".chaptercontent", ".read-content", ".container" })
+	end
+	if not chapter then
+		return pageOfElem(Document("<p>Unable to locate chapter content.</p>"), true)
+	end
+
+	local title = textOf(firstElement(chapter, { "h1" }))
+	if title == "" then
+		title = textOf(firstElement(document, { "h1" }))
+	end
+
+	removeUselessContent(chapter)
+	local paragraphs = collectParagraphs(chapter)
+
+	if #paragraphs > 0 and title ~= "" and paragraphs[1] == title then
+		table.remove(paragraphs, 1)
+	end
+
+	local translated = translateParagraphs(paragraphs)
+	local html = title ~= "" and ("<h1>" .. escapeHTML(title) .. "</h1>") or ""
+	html = html .. paragraphsToHTML(translated)
+
+	return pageOfElem(Document(html), true)
+end
+
+return {
+	id = 690069,
+	name = "69 Shuba (Translated)",
+	baseURL = baseURL,
+	imageURL = imageURL,
+	hasCloudFlare = true,
+	hasSearch = false,
+	isSearchIncrementing = false,
+	chapterType = ChapterType.HTML,
+	startIndex = 1,
+
+	listings = {
+		Listing("Popular", true, filteredList),
+		Listing("Latest Updates", true, listFromPath("/last.html")),
+		Listing("All Novels", true, listFromPath("/all.html")),
+		Listing("Completed", true, listFromPath("/novels/full")),
+		Listing("Male", true, listFromPath("/novels/male")),
+		Listing("Female", true, listFromPath("/novels/female"))
+	},
+
+	searchFilters = {
+		DropdownFilter(ORDER_FILTER_ID, "Sort", ORDER_NAMES),
+		DropdownFilter(STATUS_FILTER_ID, "Status", STATUS_NAMES),
+		DropdownFilter(GENRE_FILTER_ID, "Genre", GENRE_NAMES)
+	},
+
+	shrinkURL = shrinkURL,
+	expandURL = expandURL,
+	parseNovel = parseNovel,
+	getPassage = getPassage
+}
