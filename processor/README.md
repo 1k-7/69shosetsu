@@ -14,6 +14,12 @@ and:
 {"action":"translate_html","html":"<p>...</p>","source":"zh-CN","target":"en"}
 ```
 
+and:
+
+```json
+{"action":"search","query":"斗破苍穹"}
+```
+
 ## Run
 
 ```bash

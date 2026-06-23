@@ -2,7 +2,7 @@ import html
 import json
 import os
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import quote_plus, urlparse
 
 import httpx
 from bs4 import BeautifulSoup
@@ -78,6 +78,18 @@ def html_paragraphs(paragraphs: list[str]) -> str:
     return "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs if paragraph)
 
 
+def normalize_url(url: str) -> str:
+    if not url:
+        return ""
+    if url.startswith("//"):
+        return "https:" + url
+    if url.startswith(("http://", "https://")):
+        return url
+    if not url.startswith("/"):
+        url = "/" + url
+    return "https://www.69shuba.com" + url
+
+
 async def fetch_source_html(url: str, referer: str = "") -> str:
     assert_allowed_source(url)
     headers = {
@@ -135,6 +147,67 @@ def extract_chapter(source_html: str) -> tuple[str, list[str]]:
     return title, paragraphs
 
 
+def extract_novels(source_html: str) -> list[dict[str, str]]:
+    if is_challenge_html(source_html):
+        raise HTTPException(status_code=502, detail="upstream_challenge")
+
+    soup = BeautifulSoup(source_html, "lxml")
+    candidates = soup.select(
+        "#article_list_content > li, .search-list li, .bookbox, .booklist li, a[href*='/book/']"
+    )
+    seen: set[str] = set()
+    novels: list[dict[str, str]] = []
+
+    for candidate in candidates:
+        link_node = candidate if candidate.name == "a" else candidate.select_one("a[href*='/book/']")
+        if link_node is None:
+            continue
+
+        title = clean_text(link_node.get_text(" "))
+        image_node = candidate.select_one("img")
+        if not title and image_node is not None:
+            title = clean_text(image_node.get("title") or image_node.get("alt") or "")
+
+        link = normalize_url(link_node.get("href") or "")
+        if not title or "/book/" not in link or link in seen:
+            continue
+
+        seen.add(link)
+        novels.append(
+            {
+                "title": title,
+                "link": link,
+                "imageURL": normalize_url(
+                    (image_node.get("data-src") or image_node.get("src") or "") if image_node else ""
+                ),
+            }
+        )
+
+    return novels
+
+
+async def search_novels(query: str) -> list[dict[str, str]]:
+    encoded_query = quote_plus(query)
+    urls = [
+        f"https://www.69shuba.com/modules/article/search.php?searchkey={encoded_query}",
+        f"https://www.69shuba.com/modules/article/search.php?searchtype=articlename&searchkey={encoded_query}",
+        f"https://www.69shuba.com/search.php?q={encoded_query}",
+        f"https://www.69shuba.com/s.php?searchkey={encoded_query}",
+        f"https://www.69shuba.com/search.htm?keyword={encoded_query}",
+    ]
+
+    for url in urls:
+        try:
+            source_html = await fetch_source_html(url, "https://www.69shuba.com/")
+            novels = extract_novels(source_html)
+        except Exception:
+            continue
+        if novels:
+            return novels
+
+    return []
+
+
 def normalize_translated_html(decoded: Any) -> str | None:
     if not isinstance(decoded, list) or not decoded:
         return None
@@ -177,7 +250,7 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/")
-async def process(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, str]:
+async def process(payload: dict[str, Any], authorization: str | None = Header(default=None)) -> dict[str, Any]:
     require_token(authorization)
 
     action = payload.get("action")
@@ -199,6 +272,12 @@ async def process(payload: dict[str, Any], authorization: str | None = Header(de
         translated_body = await translate_html(body, source, target)
         title_html = f"<h1>{html.escape(title)}</h1>" if title else ""
         return {"html": title_html + translated_body}
+
+    if action == "search":
+        query = clean_text(str(payload.get("query") or ""))
+        if not query:
+            return {"novels": []}
+        return {"novels": await search_novels(query)}
 
     raise HTTPException(status_code=400, detail="unknown_action")
 

@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.3","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.4","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -107,6 +107,32 @@ local function trim(str)
 	str = str:gsub("%s+", " ")
 	str = str:gsub("^%s+", "")
 	return str:gsub("%s+$", "")
+end
+
+local function urlEncode(value)
+	value = tostring(value or "")
+	local okEncoder, Encoder = pcall(function()
+		return luajava.bindClass("java.net.URLEncoder")
+	end)
+	if okEncoder and Encoder then
+		local okEncoded, encoded = pcall(function()
+			return Encoder:encode(value, "UTF-8")
+		end)
+		if okEncoded and encoded then
+			return tostring(encoded)
+		end
+
+		okEncoded, encoded = pcall(function()
+			return Encoder.encode(value, "UTF-8")
+		end)
+		if okEncoded and encoded then
+			return tostring(encoded)
+		end
+	end
+
+	return (value:gsub("([^%w%-_%.~])", function(char)
+		return string.format("%%%02X", string.byte(char))
+	end))
 end
 
 local function shrinkURL(url)
@@ -423,6 +449,41 @@ local function parseNovelCards(elements)
 	return novels
 end
 
+local function parseProcessorNovels(items)
+	if type(items) ~= "table" then
+		return nil
+	end
+
+	local seen = {}
+	local novels = {}
+	local titles = {}
+
+	for _, item in ipairs(items) do
+		local title = trim(item.title or item.name or "")
+		local link = parseNovelLink(item.link or item.url or "")
+		if title ~= "" and link ~= "" and not seen[link] then
+			seen[link] = true
+			novels[#novels + 1] = Novel {
+				title = title,
+				link = link,
+				imageURL = normalizeImageURL(item.imageURL or item.image or "")
+			}
+			titles[#titles + 1] = title
+		end
+	end
+
+	if translatePlainTexts and #titles > 0 then
+		local translatedTitles = translatePlainTexts(titles)
+		for i, translatedTitle in ipairs(translatedTitles) do
+			if translatedTitle and translatedTitle ~= "" and novels[i] then
+				novels[i]:setTitle(translatedTitle)
+			end
+		end
+	end
+
+	return novels
+end
+
 local function parseListingPage(url)
 	local document = getDocument(url)
 	local list = document:select("#article_list_content > li")
@@ -473,6 +534,51 @@ local function filteredList(data)
 	local genre = GENRE_PARAMS[(data[GENRE_FILTER_ID] or 0) + 1] or GENRE_PARAMS[1]
 
 	return parseListingPage(baseURL .. "/novels/" .. order .. "_" .. genre .. "_" .. status .. "_" .. page .. ".htm")
+end
+
+local function parseSearchPage(url)
+	local document = getDocument(url, browserHeaders(baseURL .. "/"))
+	local list = document:select("#article_list_content > li, .search-list li, .bookbox, .booklist li")
+	if list:size() > 0 then
+		return parseNovelCards(list)
+	end
+	return parseNovelCards(document:select('a[href*="/book/"]'))
+end
+
+local function search(data)
+	data = data or {}
+	local query = trim(data[QUERY] or "")
+	if query == "" then
+		return filteredList(data)
+	end
+
+	local processorResult = callProcessor("search", {
+		query = query,
+		source = "zh-CN",
+		target = "en"
+	})
+	local processorNovels = processorResult and parseProcessorNovels(processorResult.novels)
+	if processorNovels and #processorNovels > 0 then
+		return processorNovels
+	end
+
+	local encodedQuery = urlEncode(query)
+	local urls = {
+		baseURL .. "/modules/article/search.php?searchkey=" .. encodedQuery,
+		baseURL .. "/modules/article/search.php?searchtype=articlename&searchkey=" .. encodedQuery,
+		baseURL .. "/search.php?q=" .. encodedQuery,
+		baseURL .. "/s.php?searchkey=" .. encodedQuery,
+		baseURL .. "/search.htm?keyword=" .. encodedQuery
+	}
+
+	for _, url in ipairs(urls) do
+		local novels = parseSearchPage(url)
+		if #novels > 0 then
+			return novels
+		end
+	end
+
+	return {}
 end
 
 local function parseStatus(text)
@@ -848,7 +954,7 @@ return {
 	baseURL = baseURL,
 	imageURL = imageURL,
 	hasCloudFlare = true,
-	hasSearch = false,
+	hasSearch = true,
 	isSearchIncrementing = false,
 	chapterType = ChapterType.HTML,
 	startIndex = 1,
@@ -870,6 +976,7 @@ return {
 
 	shrinkURL = shrinkURL,
 	expandURL = expandURL,
+	search = search,
 	parseNovel = parseNovel,
 	getPassage = getPassage
 }
