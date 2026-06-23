@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.1","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.2","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -8,6 +8,9 @@ local imageURL = "https://cdn.cdnshu.com/images/apple-touch-icon.png"
 local translateURL = "https://translate-pa.googleapis.com/v1/translateHtml"
 local translateKey = "AIzaSyATBXajvzQLTDHEQbcpq0Ihe0vWDHmO520"
 local jsonMediaType = MediaType("application/json+protobuf; charset=utf-8")
+local processorURL = ""
+local processorToken = ""
+local processorMediaType = MediaType("application/json; charset=utf-8")
 local gb18030Charset = nil
 local utf8Charset = nil
 local translatePlainTexts = nil
@@ -153,6 +156,16 @@ local function javaString(value)
 	return tostring(value)
 end
 
+local function isChallengeHTML(html)
+	html = (html or ""):lower()
+	if html == "" then
+		return false
+	end
+	return html:find("enable javascript and cookies to continue", 1, true) ~= nil
+		or html:find("just a moment", 1, true) ~= nil and html:find("cf_chl", 1, true) ~= nil
+		or html:find("challenge-platform", 1, true) ~= nil
+end
+
 local function getDecodedHTML(url)
 	if not gb18030Charset or not utf8Charset then
 		return nil
@@ -202,10 +215,57 @@ end
 
 local function getDocument(url)
 	local html = getDecodedHTML(url)
-	if html and html ~= "" then
+	if html and html ~= "" and not isChallengeHTML(html) then
 		return Document(html)
 	end
 	return GETDocument(url)
+end
+
+local function callProcessor(action, payload)
+	if not processorURL or processorURL == "" then
+		return nil
+	end
+
+	payload = payload or {}
+	payload.action = action
+	local body = RequestBody(json.encode(payload), processorMediaType)
+	local headersBuilder = HeadersBuilder()
+		:add("Content-Type", "application/json")
+		:add("Accept", "application/json")
+
+	if processorToken and processorToken ~= "" then
+		headersBuilder:add("Authorization", "Bearer " .. processorToken)
+	end
+
+	local ok, response = pcall(function()
+		return Request(POST(processorURL, headersBuilder:build(), body))
+	end)
+	if not ok or not response then
+		return nil
+	end
+
+	local okCode, code = pcall(function()
+		return response:code()
+	end)
+	if okCode and code and code >= 400 then
+		return nil
+	end
+
+	local okBody, responseBody = pcall(function()
+		return response:body():string()
+	end)
+	if not okBody or not responseBody or responseBody == "" then
+		return nil
+	end
+
+	local okJSON, decoded = pcall(function()
+		return json.decode(responseBody)
+	end)
+	if not okJSON or type(decoded) ~= "table" then
+		return nil
+	end
+
+	return decoded
 end
 
 local function firstElement(element, selectors)
@@ -536,6 +596,15 @@ local function translateHTML(html)
 		return html
 	end
 
+	local processorResult = callProcessor("translate_html", {
+		html = html,
+		source = "zh-CN",
+		target = "en"
+	})
+	if processorResult and processorResult.html and processorResult.html ~= "" then
+		return processorResult.html
+	end
+
 	local payload = {
 		{ html, "zh-CN", "en" },
 		"wt_lib"
@@ -687,7 +756,17 @@ local function translateParagraphs(paragraphs)
 end
 
 local function getPassage(chapterURL)
-	local document = getDocument(expandURL(chapterURL))
+	local expandedURL = expandURL(chapterURL)
+	local processorResult = callProcessor("chapter_html", {
+		url = expandedURL,
+		source = "zh-CN",
+		target = "en"
+	})
+	if processorResult and processorResult.html and processorResult.html ~= "" then
+		return pageOfElem(Document(processorResult.html), true)
+	end
+
+	local document = getDocument(expandedURL)
 	local chapter = document:selectFirst(".txtnav")
 	if not chapter then
 		chapter = firstElement(document, { "#content", ".content", ".chaptercontent", ".read-content", ".container" })
