@@ -78,13 +78,15 @@ def html_paragraphs(paragraphs: list[str]) -> str:
     return "".join(f"<p>{html.escape(paragraph)}</p>" for paragraph in paragraphs if paragraph)
 
 
-async def fetch_source_html(url: str) -> str:
+async def fetch_source_html(url: str, referer: str = "") -> str:
     assert_allowed_source(url)
     headers = {
         "User-Agent": USER_AGENT,
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
     }
+    if referer:
+        headers["Referer"] = referer
     async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=30) as client:
         response = await client.get(url)
         response.raise_for_status()
@@ -188,7 +190,10 @@ async def process(payload: dict[str, Any], authorization: str | None = Header(de
 
     if action == "chapter_html":
         url = str(payload.get("url") or "")
-        source_html = await fetch_source_html(url)
+        referer = str(payload.get("referer") or "")
+        if referer:
+            assert_allowed_source(referer)
+        source_html = await fetch_source_html(url, referer)
         title, paragraphs = extract_chapter(source_html)
         body = html_paragraphs(paragraphs)
         translated_body = await translate_html(body, source, target)

@@ -5,7 +5,7 @@ This optional service lets the Shosetsu extension delegate chapter fetch, decode
 It exposes one JSON endpoint:
 
 ```json
-{"action":"chapter_html","url":"https://www.69shuba.com/txt/12345/67890"}
+{"action":"chapter_html","url":"https://www.69shuba.com/txt/12345/67890","referer":"https://www.69shuba.com/book/12345/"}
 ```
 
 and:

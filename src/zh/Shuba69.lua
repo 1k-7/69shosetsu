@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.2","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.3","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -11,6 +11,7 @@ local jsonMediaType = MediaType("application/json+protobuf; charset=utf-8")
 local processorURL = ""
 local processorToken = ""
 local processorMediaType = MediaType("application/json; charset=utf-8")
+local userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 local gb18030Charset = nil
 local utf8Charset = nil
 local translatePlainTexts = nil
@@ -130,6 +131,20 @@ local function expandURL(url)
 	return baseURL .. url
 end
 
+local function browserHeaders(referer)
+	local builder = HeadersBuilder()
+		:add("User-Agent", userAgent)
+		:add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		:add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+		:add("Cache-Control", "no-cache")
+
+	if referer and referer ~= "" then
+		builder:add("Referer", referer)
+	end
+
+	return builder:build()
+end
+
 local function textOf(element)
 	return element and trim(element:text()) or ""
 end
@@ -166,15 +181,25 @@ local function isChallengeHTML(html)
 		or html:find("challenge-platform", 1, true) ~= nil
 end
 
-local function getDecodedHTML(url)
+local function getDecodedHTML(url, headers)
 	if not gb18030Charset or not utf8Charset then
 		return nil
 	end
 
 	local okResponse, response = pcall(function()
+		if headers then
+			return Request(GET(url, headers))
+		end
 		return Request(GET(url))
 	end)
 	if not okResponse or not response then
+		return nil
+	end
+
+	local okCode, code = pcall(function()
+		return response:code()
+	end)
+	if okCode and code and code >= 400 then
 		return nil
 	end
 
@@ -213,12 +238,22 @@ local function getDecodedHTML(url)
 	return decodeWith(gb18030Charset) or utf8HTML
 end
 
-local function getDocument(url)
-	local html = getDecodedHTML(url)
+local function getDocument(url, headers, allowFallback)
+	local html = getDecodedHTML(url, headers)
 	if html and html ~= "" and not isChallengeHTML(html) then
 		return Document(html)
 	end
-	return GETDocument(url)
+	if allowFallback == false then
+		return Document("<html></html>")
+	end
+
+	local okDocument, document = pcall(function()
+		return GETDocument(url)
+	end)
+	if okDocument and document then
+		return document
+	end
+	return Document("<html></html>")
 end
 
 local function callProcessor(action, payload)
@@ -296,6 +331,14 @@ end
 
 local function bookIDFromURL(url)
 	return (url or ""):match("/book/(%d+)%.htm") or (url or ""):match("/book/(%d+)/")
+end
+
+local function bookRefererFromChapterURL(url)
+	local id = (url or ""):match("/txt/(%d+)/")
+	if id then
+		return baseURL .. "/book/" .. id .. "/"
+	end
+	return baseURL .. "/"
 end
 
 local function parseNovelLink(url)
@@ -757,8 +800,10 @@ end
 
 local function getPassage(chapterURL)
 	local expandedURL = expandURL(chapterURL)
+	local referer = bookRefererFromChapterURL(expandedURL)
 	local processorResult = callProcessor("chapter_html", {
 		url = expandedURL,
+		referer = referer,
 		source = "zh-CN",
 		target = "en"
 	})
@@ -766,7 +811,7 @@ local function getPassage(chapterURL)
 		return pageOfElem(Document(processorResult.html), true)
 	end
 
-	local document = getDocument(expandedURL)
+	local document = getDocument(expandedURL, browserHeaders(referer), false)
 	local chapter = document:selectFirst(".txtnav")
 	if not chapter then
 		chapter = firstElement(document, { "#content", ".content", ".chaptercontent", ".read-content", ".container" })
