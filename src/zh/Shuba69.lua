@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.9","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.10","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -810,14 +810,14 @@ parseNovel = function(novelURL, loadChapters)
 
 		local chapterTitles = {}
 		local chapters = {}
-		for i = #chapterElementList, 1, -1 do
-			local chapter = chapterElementList[i]
+		for _, chapter in ipairs(chapterElementList) do
 			local chapterTitle = textOf(chapter:selectFirst("span")) ~= "" and textOf(chapter:selectFirst("span")) or textOf(chapter)
+			local sourceOrder = tonumber(attrOf(chapter:parent(), "data-num")) or (#chapterElementList - #chapters)
 			chapterTitles[#chapterTitles + 1] = chapterTitle
 			chapters[#chapters + 1] = NovelChapter {
 				title = chapterTitle,
 				link = shrinkURL(chapter:attr("href")),
-				order = i,
+				order = sourceOrder,
 				release = textOf(chapter:selectFirst("small")) ~= "" and textOf(chapter:selectFirst("small")) or attrOf(chapter:parent(), "data-etime")
 			}
 		end
