@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.0","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.1","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -8,6 +8,33 @@ local imageURL = "https://cdn.cdnshu.com/images/apple-touch-icon.png"
 local translateURL = "https://translate-pa.googleapis.com/v1/translateHtml"
 local translateKey = "AIzaSyATBXajvzQLTDHEQbcpq0Ihe0vWDHmO520"
 local jsonMediaType = MediaType("application/json+protobuf; charset=utf-8")
+local gb18030Charset = nil
+local utf8Charset = nil
+local translatePlainTexts = nil
+
+pcall(function()
+	local Charset = luajava.bindClass("java.nio.charset.Charset")
+	local function charsetForName(name)
+		local ok, charset = pcall(function()
+			return Charset:forName(name)
+		end)
+		if ok and charset then
+			return charset
+		end
+
+		ok, charset = pcall(function()
+			return Charset.forName(name)
+		end)
+		if ok and charset then
+			return charset
+		end
+
+		return nil
+	end)
+
+	gb18030Charset = charsetForName("GB18030")
+	utf8Charset = charsetForName("UTF-8")
+end)
 
 local ORDER_FILTER_ID = 2
 local STATUS_FILTER_ID = 3
@@ -111,6 +138,76 @@ local function attrOf(element, name)
 	return element:attr(name) or ""
 end
 
+local function javaString(value)
+	if type(value) == "string" then
+		return value
+	end
+
+	local ok, str = pcall(function()
+		return value:toString()
+	end)
+	if ok and str then
+		return tostring(str)
+	end
+
+	return tostring(value)
+end
+
+local function getDecodedHTML(url)
+	if not gb18030Charset or not utf8Charset then
+		return nil
+	end
+
+	local okResponse, response = pcall(function()
+		return Request(GET(url))
+	end)
+	if not okResponse or not response then
+		return nil
+	end
+
+	local okBytes, bytes = pcall(function()
+		return response:body():bytes()
+	end)
+	if not okBytes or not bytes then
+		return nil
+	end
+
+	local function decodeWith(charset)
+		local okText, text = pcall(function()
+			return luajava.newInstance("java.lang.String", bytes, charset)
+		end)
+		if okText and text then
+			return javaString(text)
+		end
+		return nil
+	end
+
+	local contentType = ""
+	pcall(function()
+		contentType = response:headers():get("Content-Type") or ""
+	end)
+	contentType = contentType:lower()
+
+	if contentType:find("gbk", 1, true) or contentType:find("gb2312", 1, true) or contentType:find("gb18030", 1, true) then
+		return decodeWith(gb18030Charset)
+	end
+
+	local utf8HTML = decodeWith(utf8Charset)
+	if utf8HTML and not utf8HTML:find("\239\191\189", 1, true) then
+		return utf8HTML
+	end
+
+	return decodeWith(gb18030Charset) or utf8HTML
+end
+
+local function getDocument(url)
+	local html = getDecodedHTML(url)
+	if html and html ~= "" then
+		return Document(html)
+	end
+	return GETDocument(url)
+end
+
 local function firstElement(element, selectors)
 	if not element then
 		return nil
@@ -194,26 +291,37 @@ local function parseNovelCard(element)
 		title = title,
 		link = link,
 		imageURL = normalizeImageURL(attrOf(imageElement, "data-src") ~= "" and attrOf(imageElement, "data-src") or attrOf(imageElement, "src"))
-	}, link
+	}, link, title
 end
 
 local function parseNovelCards(elements)
 	local seen = {}
 	local novels = {}
+	local titles = {}
 
 	map(elements, function(element)
-		local novel, link = parseNovelCard(element)
+		local novel, link, title = parseNovelCard(element)
 		if novel and link ~= "" and not seen[link] then
 			seen[link] = true
 			novels[#novels + 1] = novel
+			titles[#titles + 1] = title
 		end
 	end)
+
+	if translatePlainTexts and #titles > 0 then
+		local translatedTitles = translatePlainTexts(titles)
+		for i, translatedTitle in ipairs(translatedTitles) do
+			if translatedTitle and translatedTitle ~= "" and novels[i] then
+				novels[i]:setTitle(translatedTitle)
+			end
+		end
+	end
 
 	return novels
 end
 
 local function parseListingPage(url)
-	local document = GETDocument(url)
+	local document = getDocument(url)
 	local list = document:select("#article_list_content > li")
 	if list:size() > 0 then
 		return parseNovelCards(list)
@@ -281,7 +389,7 @@ end
 
 local function parseNovel(novelURL, loadChapters)
 	local infoURL = expandURL(parseNovelLink(novelURL))
-	local document = GETDocument(infoURL)
+	local document = getDocument(infoURL)
 
 	local nav = document:selectFirst(".booknav2")
 	local title = textOf(firstElement(document, { ".booknav2 h1", "h1" }))
@@ -319,37 +427,58 @@ local function parseNovel(novelURL, loadChapters)
 		description = description:gsub("^简介%s*", "")
 	end
 
+	local translatedTitle = title
+	local translatedDescription = description
+	if translatePlainTexts then
+		local translatedInfo = translatePlainTexts({ title, description })
+		translatedTitle = translatedInfo[1] ~= "" and translatedInfo[1] or title
+		translatedDescription = translatedInfo[2] ~= "" and translatedInfo[2] or description
+		tags = translatePlainTexts(tags)
+		genres = translatePlainTexts(genres)
+	end
+
 	local novelInfo = NovelInfo {
-		title = title,
+		title = translatedTitle,
 		link = parseNovelLink(novelURL),
 		imageURL = normalizeImageURL(attrOf(image, "src")),
-		description = description,
+		description = translatedDescription,
 		authors = author ~= "" and { author } or {},
 		genres = genres,
 		tags = tags,
 		status = parseStatus(statusText),
-		language = "zh"
+		language = "en"
 	}
 
 	if loadChapters then
 		local id = bookIDFromURL(novelURL) or bookIDFromURL(infoURL)
 		local catalogURL = id and (baseURL .. "/book/" .. id .. "/") or infoURL:gsub("%.htm$", "/")
-		local catalog = GETDocument(catalogURL)
+		local catalog = getDocument(catalogURL)
 		local chapterElements = catalog:select('#catalog li[data-num] a[href*="/txt/"]')
 		if chapterElements:size() == 0 then
 			chapterElements = document:select('a[href*="/txt/"]')
 		end
 
 		local order = 0
+		local chapterTitles = {}
 		local chapters = AsList(map(chapterElements, function(chapter)
 			order = order + 1
+			local chapterTitle = textOf(chapter:selectFirst("span")) ~= "" and textOf(chapter:selectFirst("span")) or textOf(chapter)
+			chapterTitles[#chapterTitles + 1] = chapterTitle
 			return NovelChapter {
-				title = textOf(chapter:selectFirst("span")) ~= "" and textOf(chapter:selectFirst("span")) or textOf(chapter),
+				title = chapterTitle,
 				link = shrinkURL(chapter:attr("href")),
 				order = order,
 				release = textOf(chapter:selectFirst("small")) ~= "" and textOf(chapter:selectFirst("small")) or attrOf(chapter:parent(), "data-etime")
 			}
 		end))
+		if translatePlainTexts and #chapterTitles > 0 then
+			local translatedChapterTitles = translatePlainTexts(chapterTitles)
+			for i, translatedTitle in ipairs(translatedChapterTitles) do
+				if translatedTitle and translatedTitle ~= "" and chapters[i] then
+					chapters[i]:setTitle(translatedTitle)
+				end
+			end
+		end
 
 		novelInfo:setChapters(chapters)
 	end
@@ -395,9 +524,11 @@ local function escapeHTML(text)
 end
 
 local function paragraphsToHTML(paragraphs)
-	return table.concat(map(paragraphs, function(paragraph)
-		return "<p>" .. escapeHTML(paragraph) .. "</p>"
-	end), "")
+	local html = {}
+	for _, paragraph in ipairs(paragraphs) do
+		html[#html + 1] = "<p>" .. escapeHTML(paragraph) .. "</p>"
+	end
+	return table.concat(html, "")
 end
 
 local function translateHTML(html)
@@ -439,12 +570,76 @@ local function translateHTML(html)
 	end
 
 	if type(decoded[1]) == "table" then
-		return table.concat(map(decoded[1], function(fragment)
-			return "<p>" .. escapeHTML(tostring(fragment)) .. "</p>"
-		end), "")
+		local fragments = {}
+		for _, fragment in ipairs(decoded[1]) do
+			fragment = tostring(fragment)
+			if fragment:find("<%s*/?%s*p") or fragment:find("<%s*br") then
+				fragments[#fragments + 1] = fragment
+			else
+				fragments[#fragments + 1] = "<p>" .. escapeHTML(fragment) .. "</p>"
+			end
+		end
+		return table.concat(fragments, "")
 	end
 
-	return tostring(decoded[1])
+	local translated = tostring(decoded[1])
+	if translated:find("<%s*/?%s*p") or translated:find("<%s*br") then
+		return translated
+	end
+	return "<p>" .. escapeHTML(translated) .. "</p>"
+end
+
+function translatePlainTexts(texts)
+	texts = texts or {}
+	local translated = {}
+	local batch = {}
+	local positions = {}
+	local batchLength = 0
+
+	for i, text in ipairs(texts) do
+		translated[i] = text
+	end
+
+	local function flush()
+		if #batch == 0 then
+			return
+		end
+
+		local translatedHTML = translateHTML(paragraphsToHTML(batch))
+		local translatedDoc = Document(translatedHTML)
+		local translatedParagraphs = translatedDoc:select("p")
+
+		if translatedParagraphs:size() > 0 then
+			local translatedIndex = 1
+			map(translatedParagraphs, function(paragraph)
+				local position = positions[translatedIndex]
+				local text = textOf(paragraph)
+				if position and text ~= "" then
+					translated[position] = text
+				end
+				translatedIndex = translatedIndex + 1
+			end)
+		end
+
+		batch = {}
+		positions = {}
+		batchLength = 0
+	end
+
+	for i, text in ipairs(texts) do
+		text = trim(text)
+		if text ~= "" then
+			if batchLength > 0 and batchLength + #text > 4500 then
+				flush()
+			end
+			batch[#batch + 1] = text
+			positions[#positions + 1] = i
+			batchLength = batchLength + #text
+		end
+	end
+	flush()
+
+	return translated
 end
 
 local function translateParagraphs(paragraphs)
@@ -492,7 +687,7 @@ local function translateParagraphs(paragraphs)
 end
 
 local function getPassage(chapterURL)
-	local document = GETDocument(expandURL(chapterURL))
+	local document = getDocument(expandURL(chapterURL))
 	local chapter = document:selectFirst(".txtnav")
 	if not chapter then
 		chapter = firstElement(document, { "#content", ".content", ".chaptercontent", ".read-content", ".container" })
@@ -514,6 +709,9 @@ local function getPassage(chapterURL)
 	end
 
 	local translated = translateParagraphs(paragraphs)
+	if translatePlainTexts and title ~= "" then
+		title = translatePlainTexts({ title })[1] or title
+	end
 	local html = title ~= "" and ("<h1>" .. escapeHTML(title) .. "</h1>") or ""
 	html = html .. paragraphsToHTML(translated)
 
