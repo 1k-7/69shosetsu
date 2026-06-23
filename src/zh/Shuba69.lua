@@ -30,7 +30,7 @@ pcall(function()
 		end
 
 		return nil
-	end)
+	end
 
 	gb18030Charset = charsetForName("GB18030")
 	utf8Charset = charsetForName("UTF-8")
