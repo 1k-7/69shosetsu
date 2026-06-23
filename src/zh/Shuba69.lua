@@ -1,8 +1,8 @@
--- {"id":690069,"ver":"1.0.5","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.6","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
-local baseURL = "https://www.69shuba.com"
+local baseURL = "https://69shuba.com"
 local imageURL = "https://cdn.cdnshu.com/images/apple-touch-icon.png"
 
 local translateURL = "https://translate-pa.googleapis.com/v1/translateHtml"
@@ -221,6 +221,8 @@ local function isChallengeHTML(html)
 	return html:find("enable javascript and cookies to continue", 1, true) ~= nil
 		or html:find("just a moment", 1, true) ~= nil and html:find("cf_chl", 1, true) ~= nil
 		or html:find("challenge-platform", 1, true) ~= nil
+		or html:find("challenges.cloudflare.com/turnstile", 1, true) ~= nil
+		or html:find("performing security verification", 1, true) ~= nil
 end
 
 local decodeResponseHTML
@@ -394,7 +396,11 @@ local function normalizeImageURL(url)
 end
 
 local function bookIDFromURL(url)
-	return (url or ""):match("/book/(%d+)%.htm") or (url or ""):match("/book/(%d+)/")
+	url = (url or ""):gsub("[#?].*$", "")
+	return url:match("/book/(%d+)%.html$")
+		or url:match("/book/(%d+)%.htm$")
+		or url:match("/book/(%d+)/")
+		or url:match("/book/(%d+)$")
 end
 
 local function bookRefererFromChapterURL(url)
@@ -594,11 +600,51 @@ local function postSearchPage(url, bodyText)
 	return {}
 end
 
+local parseNovel
+
+local function directBookLinkFromQuery(query)
+	query = trim(query)
+	if query == "" then
+		return nil
+	end
+
+	local id = bookIDFromURL(query) or query:match("/txt/(%d+)/")
+	if not id and query:match("^%d+$") then
+		id = query
+	end
+	if not id then
+		return nil
+	end
+
+	return "/book/" .. id .. ".htm"
+end
+
+local function directBookSearch(query)
+	local link = directBookLinkFromQuery(query)
+	if not link then
+		return nil
+	end
+
+	local ok, novel = pcall(function()
+		return parseNovel(link, false)
+	end)
+	if ok and novel then
+		return { novel }
+	end
+
+	return {}
+end
+
 local function search(data)
 	data = data or {}
 	local query = trim(data[QUERY] or "")
 	if query == "" then
 		return filteredList(data)
+	end
+
+	local directNovels = directBookSearch(query)
+	if directNovels then
+		return directNovels
 	end
 
 	local processorResult = callProcessor("search", {
@@ -666,7 +712,7 @@ local function parseMetadataLine(text, label)
 	return trim((text or ""):match(label .. "[:：]%s*(.+)") or "")
 end
 
-local function parseNovel(novelURL, loadChapters)
+parseNovel = function(novelURL, loadChapters)
 	local infoURL = expandURL(parseNovelLink(novelURL))
 	local document = getDocument(infoURL)
 
