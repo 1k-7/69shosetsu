@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.6","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.7","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -619,6 +619,26 @@ local function directBookLinkFromQuery(query)
 	return "/book/" .. id .. ".htm"
 end
 
+local function parseDirectSearchNovel(link)
+	local document = getDocument(expandURL(link), browserHeaders(baseURL .. "/"))
+	local title = textOf(firstElement(document, { ".booknav2 h1", "h1" }))
+	if title == "" or title == "69shuba.com" or title == "www.69shuba.com" then
+		return nil
+	end
+
+	local image = firstElement(document, { ".bookimg2 img", ".bookbox img", "img[title]" })
+	if translatePlainTexts then
+		local translated = translatePlainTexts({ title })
+		title = translated[1] ~= "" and translated[1] or title
+	end
+
+	return Novel {
+		title = title,
+		link = parseNovelLink(link),
+		imageURL = normalizeImageURL(attrOf(image, "src"))
+	}
+end
+
 local function directBookSearch(query)
 	local link = directBookLinkFromQuery(query)
 	if not link then
@@ -626,7 +646,7 @@ local function directBookSearch(query)
 	end
 
 	local ok, novel = pcall(function()
-		return parseNovel(link, false)
+		return parseDirectSearchNovel(link)
 	end)
 	if ok and novel then
 		return { novel }
