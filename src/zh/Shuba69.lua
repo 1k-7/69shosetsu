@@ -1,4 +1,4 @@
--- {"id":690069,"ver":"1.0.4","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
+-- {"id":690069,"ver":"1.0.5","libVer":"1.0.0","author":"Codex","dep":["dkjson>=1.0.0"]}
 
 local json = Require("dkjson")
 
@@ -11,6 +11,7 @@ local jsonMediaType = MediaType("application/json+protobuf; charset=utf-8")
 local processorURL = ""
 local processorToken = ""
 local processorMediaType = MediaType("application/json; charset=utf-8")
+local formMediaType = MediaType("application/x-www-form-urlencoded; charset=UTF-8")
 local userAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126 Safari/537.36"
 local gb18030Charset = nil
 local utf8Charset = nil
@@ -171,6 +172,21 @@ local function browserHeaders(referer)
 	return builder:build()
 end
 
+local function formHeaders(referer)
+	local builder = HeadersBuilder()
+		:add("User-Agent", userAgent)
+		:add("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+		:add("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+		:add("Cache-Control", "no-cache")
+		:add("Origin", baseURL)
+
+	if referer and referer ~= "" then
+		builder:add("Referer", referer)
+	end
+
+	return builder:build()
+end
+
 local function textOf(element)
 	return element and trim(element:text()) or ""
 end
@@ -207,6 +223,8 @@ local function isChallengeHTML(html)
 		or html:find("challenge-platform", 1, true) ~= nil
 end
 
+local decodeResponseHTML
+
 local function getDecodedHTML(url, headers)
 	if not gb18030Charset or not utf8Charset then
 		return nil
@@ -222,6 +240,26 @@ local function getDecodedHTML(url, headers)
 		return nil
 	end
 
+	return decodeResponseHTML and decodeResponseHTML(response) or nil
+end
+
+local function postDecodedHTML(url, bodyText, headers)
+	if not gb18030Charset or not utf8Charset then
+		return nil
+	end
+
+	local body = RequestBody(bodyText, formMediaType)
+	local okResponse, response = pcall(function()
+		return Request(POST(url, headers, body))
+	end)
+	if not okResponse or not response then
+		return nil
+	end
+
+	return decodeResponseHTML and decodeResponseHTML(response) or nil
+end
+
+decodeResponseHTML = function(response)
 	local okCode, code = pcall(function()
 		return response:code()
 	end)
@@ -536,13 +574,24 @@ local function filteredList(data)
 	return parseListingPage(baseURL .. "/novels/" .. order .. "_" .. genre .. "_" .. status .. "_" .. page .. ".htm")
 end
 
-local function parseSearchPage(url)
-	local document = getDocument(url, browserHeaders(baseURL .. "/"))
+local function parseSearchDocument(document)
 	local list = document:select("#article_list_content > li, .search-list li, .bookbox, .booklist li")
 	if list:size() > 0 then
 		return parseNovelCards(list)
 	end
 	return parseNovelCards(document:select('a[href*="/book/"]'))
+end
+
+local function parseSearchPage(url)
+	return parseSearchDocument(getDocument(url, browserHeaders(baseURL .. "/")))
+end
+
+local function postSearchPage(url, bodyText)
+	local html = postDecodedHTML(url, bodyText, formHeaders(baseURL .. "/"))
+	if html and html ~= "" and not isChallengeHTML(html) then
+		return parseSearchDocument(Document(html))
+	end
+	return {}
 end
 
 local function search(data)
@@ -575,6 +624,27 @@ local function search(data)
 		local novels = parseSearchPage(url)
 		if #novels > 0 then
 			return novels
+		end
+	end
+
+	local postTargets = {
+		baseURL .. "/modules/article/search.php",
+		baseURL .. "/search.php",
+		baseURL .. "/s.php"
+	}
+	local postBodies = {
+		"searchkey=" .. encodedQuery,
+		"searchtype=articlename&searchkey=" .. encodedQuery,
+		"q=" .. encodedQuery,
+		"keyword=" .. encodedQuery
+	}
+
+	for _, url in ipairs(postTargets) do
+		for _, bodyText in ipairs(postBodies) do
+			local novels = postSearchPage(url, bodyText)
+			if #novels > 0 then
+				return novels
+			end
 		end
 	end
 

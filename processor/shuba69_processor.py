@@ -105,6 +105,22 @@ async def fetch_source_html(url: str, referer: str = "") -> str:
         return decode_response(response)
 
 
+async def post_source_html(url: str, body: dict[str, str], referer: str = "") -> str:
+    assert_allowed_source(url)
+    headers = {
+        "User-Agent": USER_AGENT,
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+        "Origin": "https://www.69shuba.com",
+    }
+    if referer:
+        headers["Referer"] = referer
+    async with httpx.AsyncClient(headers=headers, follow_redirects=True, timeout=30) as client:
+        response = await client.post(url, data=body)
+        response.raise_for_status()
+        return decode_response(response)
+
+
 def extract_chapter(source_html: str) -> tuple[str, list[str]]:
     if is_challenge_html(source_html):
         raise HTTPException(status_code=502, detail="upstream_challenge")
@@ -204,6 +220,28 @@ async def search_novels(query: str) -> list[dict[str, str]]:
             continue
         if novels:
             return novels
+
+    post_targets = [
+        "https://www.69shuba.com/modules/article/search.php",
+        "https://www.69shuba.com/search.php",
+        "https://www.69shuba.com/s.php",
+    ]
+    post_bodies = [
+        {"searchkey": query},
+        {"searchtype": "articlename", "searchkey": query},
+        {"q": query},
+        {"keyword": query},
+    ]
+
+    for url in post_targets:
+        for body in post_bodies:
+            try:
+                source_html = await post_source_html(url, body, "https://www.69shuba.com/")
+                novels = extract_novels(source_html)
+            except Exception:
+                continue
+            if novels:
+                return novels
 
     return []
 
